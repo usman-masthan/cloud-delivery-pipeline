@@ -18,8 +18,6 @@ env:
 jobs:
   build-and-test:
     runs-on: ubuntu-latest
-    outputs:
-      ecr_token: ${{ steps.get-token.outputs.token }}
     steps:
       - name: Checkout Code Repository
         uses: actions/checkout@v4
@@ -47,13 +45,6 @@ jobs:
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
 
-      - name: Generate ECR Auth Token for Deployment Node
-        id: get-token
-        run: |
-          TOKEN=$(aws ecr get-login-password --region ${{ env.AWS_REGION }})
-          echo "::add-mask::$TOKEN"
-          echo "token=$TOKEN" >> $GITHUB_OUTPUT
-
       - name: Push Secure Image to ECR Warehouse
         run: |
           docker push ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:${{ env.IMAGE_TAG }}
@@ -68,24 +59,27 @@ jobs:
           host: ${{ secrets.EC2_HOST }}
           username: ubuntu
           key: ${{ secrets.EC2_SSH_KEY }}
-          envs: ECR_TOKEN
           script: |
-            # Ensure Docker is installed on the host node
+            # 1. Ensure Docker is installed
             if ! command -v docker &> /dev/null; then
               sudo apt-get update -y
               sudo apt-get install -y docker.io
             fi
 
-            # Authenticate Docker using the passed GitHub runner ECR token
-            echo "$ECR_TOKEN" | sudo docker login --username AWS --password-stdin 281851731755.dkr.ecr.us-east-1.amazonaws.com
+            # 2. Ensure AWS CLI v2 is installed cleanly via standalone binary
+            if ! command -v aws &> /dev/null; then
+              sudo apt-get update -y
+              sudo apt-get install -y unzip
+              curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
+              unzip -q awscliv2.zip
+              sudo ./aws/install
+              rm -rf awscliv2.zip aws/
+            fi
 
-            # Purge any stale active container profiles
+            # 3. Authenticate to ECR using the EC2 Attached IAM Role Profile
+            /usr/local/bin/aws ecr get-login-password --region us-east-1 | sudo docker login --username AWS --password-stdin 281851731755.dkr.ecr.us-east-1.amazonaws.com
+
+            # 4. Clean deployment profiles and cycle container instances
             sudo docker rm -f wso2-runtime-service 2>/dev/null || true
-
-            # Pull down the freshly scanned, secure image layer
             sudo docker pull 281851731755.dkr.ecr.us-east-1.amazonaws.com/cloud_delivery_pipeline_wso2_project1:latest
-
-            # Spin up the active application container instance
             sudo docker run -d --name wso2-runtime-service -p 9443:9443 281851731755.dkr.ecr.us-east-1.amazonaws.com/cloud_delivery_pipeline_wso2_project1:latest
-        env:
-          ECR_TOKEN: ${{ needs.build-and-test.outputs.ecr_token }}
