@@ -48,3 +48,29 @@ jobs:
       - name: Push Secure Image to ECR Warehouse
         run: |
           docker push ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:${{ env.IMAGE_TAG }}
+
+  deploy-to-production:
+    needs: build-and-test # Ensures deployment ONLY happens if security scans and builds clear!
+    runs-on: ubuntu-latest
+    steps:
+      - name: Remote SSH Execution and Live Deployment
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ubuntu
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            # Update local system packages and verify Docker runtime exists
+            sudo apt-get update -y && sudo apt-get install -y docker.io AWS-cli
+
+            # Use instance credentials or pull profile to log in to ECR directly on the machine
+            aws ecr get-login-password --region us-east-1 | sudo docker login --username AWS --password-stdin 281851731755.dkr.ecr.us-east-1.amazonaws.com
+
+            # Purge any stale active container profiles
+            sudo docker rm -f wso2-runtime-service 2>/dev/null || true
+
+            # Pull down the freshly scanned, secure image layer
+            sudo docker pull 281851731755.dkr.ecr.us-east-1.amazonaws.com/cloud_delivery_pipeline_wso2_project1:latest
+
+            # Spin up the active application container instance
+            sudo docker run -d --name wso2-runtime-service -p 9443:9443 281851731755.dkr.ecr.us-east-1.amazonaws.com/cloud_delivery_pipeline_wso2_project1:latest
