@@ -69,7 +69,7 @@ jobs:
             # 2. Ensure AWS CLI v2 is installed cleanly via standalone binary
             if ! command -v aws &> /dev/null; then
               sudo apt-get update -y
-              sudo apt-get install -y unzip
+              sudo apt-get install -y unzip curl
               curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
               unzip -q awscliv2.zip
               sudo ./aws/install
@@ -83,3 +83,26 @@ jobs:
             sudo docker rm -f wso2-runtime-service 2>/dev/null || true
             sudo docker pull 281851731755.dkr.ecr.us-east-1.amazonaws.com/cloud_delivery_pipeline_wso2_project1:latest
             sudo docker run -d --name wso2-runtime-service -p 9443:9443 281851731755.dkr.ecr.us-east-1.amazonaws.com/cloud_delivery_pipeline_wso2_project1:latest
+
+            # 5. Housekeeping: Prune stale dangling images to save storage disk space
+            sudo docker image prune -a -f
+
+            # 6. Automated Health-Check Probe
+            echo "Waiting for WSO2 service container routing layer to stabilize..."
+            success=false
+            for i in {1..12}; do
+              # WSO2 usually serves a carbon console admin login redirect on root via HTTPS
+              if curl -k -s -f -o /dev/null https://localhost:9443/; then
+                echo "✅ Health check passed! Application is responding perfectly on port 9443."
+                success=true
+                break
+              fi
+              echo "Probe [$i/12]: Service warming up, retrying in 10 seconds..."
+              sleep 10
+            done
+
+            if [ "$success" = false ]; then
+              echo "❌ Error: Application failed health check probe after 2 minutes."
+              sudo docker status wso2-runtime-service || true
+              exit 1
+            fi
