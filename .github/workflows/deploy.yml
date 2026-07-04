@@ -13,6 +13,7 @@ env:
   ECR_REGISTRY: "281851731755.dkr.ecr.us-east-1.amazonaws.com"
   ECR_REPOSITORY: "cloud_delivery_pipeline_wso2_project1"
   IMAGE_TAG: "latest"
+  AWS_ROLE_ARN: "arn:aws:iam::281851731755:role/github-actions-ecr-role"
 
 jobs:
   build-and-test:
@@ -32,3 +33,18 @@ jobs:
           format: 'table'
           exit-code: '1'
           severity: 'CRITICAL,HIGH'
+
+      - name: Authenticate to AWS via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+          audience: sts.amazonaws.com
+
+      - name: Log in to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Push Secure Image to ECR Warehouse
+        run: |
+          docker push ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:${{ env.IMAGE_TAG }}
