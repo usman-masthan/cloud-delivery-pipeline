@@ -50,7 +50,7 @@ jobs:
           docker push ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:${{ env.IMAGE_TAG }}
 
   deploy-to-production:
-    needs: build-and-test # Ensures deployment ONLY happens if security scans and builds clear!
+    needs: build-and-test
     runs-on: ubuntu-latest
     steps:
       - name: Remote SSH Execution and Live Deployment
@@ -60,10 +60,11 @@ jobs:
           username: ubuntu
           key: ${{ secrets.EC2_SSH_KEY }}
           script: |
-            # Update local system packages and verify Docker runtime exists
-            sudo apt-get update -y && sudo apt-get install -y docker.io AWS-cli
+            # Update local system packages and install correct package names
+            sudo apt-get update -y
+            sudo apt-get install -y docker.io awscli
 
-            # Use instance credentials or pull profile to log in to ECR directly on the machine
+            # Log in to Amazon ECR using the correct AWS CLI binary path
             aws ecr get-login-password --region us-east-1 | sudo docker login --username AWS --password-stdin 281851731755.dkr.ecr.us-east-1.amazonaws.com
 
             # Purge any stale active container profiles
