@@ -87,24 +87,28 @@ jobs:
             # 5. Housekeeping: Prune stale dangling images to save storage disk space
             sudo docker image prune -a -f
 
-            # 6. Automated Health-Check Probe (Extended to 4 minutes for cold starts)
+            # 6. Enterprise Readiness Probe Loop (6-minute timeout window)
             echo "Waiting for WSO2 service container routing layer to stabilize..."
             success=false
-            for i in {1..24}; do
-              if curl -k -s -f -o /dev/null https://localhost:9443/; then
-                echo "✅ Health check passed! Application is responding perfectly on port 9443."
+            for i in {1..36}; do
+              # Capture the raw HTTP status code without strict failures (-f)
+              HTTP_STATUS=$(curl -k -s -o /dev/null -w "%{http_code}" https://localhost:9443/)
+              
+              # WSO2 is up if it gives a successful 200, a redirection 302, or an auth 401
+              if echo "$HTTP_STATUS" | grep -qE "200|302|401"; then
+                echo "✅ Health check passed! Application server responded with HTTP $HTTP_STATUS on port 9443."
                 success=true
                 break
               fi
-              echo "Probe [$i/24]: Service warming up, retrying in 10 seconds..."
+              echo "Probe [$i/36]: Server replied with HTTP $HTTP_STATUS (Warming up). Retrying in 10 seconds..."
               sleep 10
             done
 
             if [ "$success" = false ]; then
-              echo "❌ Error: Application failed health check probe after 4 minutes."
+              echo "❌ Error: Application failed health check probe after 6 minutes."
               echo "=== Container Status ==="
               sudo docker ps -a --filter "name=wso2-runtime-service" || true
               echo "=== Recent Container Logs ==="
-              sudo docker logs --tail 200 wso2-runtime-service || true
+              sudo docker logs --tail 300 wso2-runtime-service || true
               exit 1
             fi
